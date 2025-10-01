@@ -19,7 +19,6 @@ import {
 import { randomUUID } from 'expo-crypto';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
 import type { Todo, FilterType, SortType } from './types';
 import { FilterType as FT, SortType as ST } from './types';
 
@@ -72,14 +71,6 @@ export default function TodoApp() {
   };
 
   const { dismissKeyboard } = useKeyboardManager();
-
-  // Сброс состояния при фокусе на экране
-  useFocusEffect(
-    React.useCallback(() => {
-      dismissKeyboard();
-      setFocusedInput(null);
-    }, [])
-  );
 
   // Load data on startup
   useEffect(() => {
