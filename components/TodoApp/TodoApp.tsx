@@ -19,6 +19,7 @@ import {
 import { randomUUID } from 'expo-crypto';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import type { Todo, FilterType, SortType } from './types';
 import { FilterType as FT, SortType as ST } from './types';
 
@@ -30,7 +31,7 @@ export default function TodoApp() {
   const [sort, setSort] = useState<SortType>(ST.DATE_ADDED);
   const [isAdding, setIsAdding] = useState<boolean>(false);
   const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
-
+  
   // Form states
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
@@ -41,6 +42,44 @@ export default function TodoApp() {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isSmallScreen = width < 450;
+
+  // Кастомный хук для управления клавиатурой
+  const useKeyboardManager = () => {
+    const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+    useEffect(() => {
+      const keyboardDidShowListener = Keyboard.addListener(
+        Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+        () => setKeyboardVisible(true)
+      );
+      
+      const keyboardDidHideListener = Keyboard.addListener(
+        Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+        () => setKeyboardVisible(false)
+      );
+
+      return () => {
+        keyboardDidShowListener.remove();
+        keyboardDidHideListener.remove();
+      };
+    }, []);
+
+    const dismissKeyboard = () => {
+      Keyboard.dismiss();
+    };
+
+    return { isKeyboardVisible, dismissKeyboard };
+  };
+
+  const { dismissKeyboard } = useKeyboardManager();
+
+  // Сброс состояния при фокусе на экране
+  useFocusEffect(
+    React.useCallback(() => {
+      dismissKeyboard();
+      setFocusedInput(null);
+    }, [])
+  );
 
   // Load data on startup
   useEffect(() => {
@@ -60,8 +99,20 @@ export default function TodoApp() {
       await ScreenOrientation.unlockAsync();
     };
 
+    const handleOrientationChange = () => {
+      dismissKeyboard();
+      setFocusedInput(null);
+    };
+
     loadTodos();
     configureOrientation();
+
+    // Подписка на изменение ориентации
+    const subscription = ScreenOrientation.addOrientationChangeListener(handleOrientationChange);
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   // Save data when changes occur
@@ -81,22 +132,18 @@ export default function TodoApp() {
   // Format date function
   const formatDueDate = (dateString: string) => {
     if (!dateString) return '';
-    
     try {
       // Try parsing as ISO string first
       let date = new Date(dateString);
-      
       // If invalid, try parsing as YYYY-MM-DD
       if (isNaN(date.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
         const [year, month, day] = dateString.split('-').map(Number);
         date = new Date(year, month - 1, day);
       }
-      
       // If still invalid, return original string
       if (isNaN(date.getTime())) {
         return dateString;
       }
-      
       // Return formatted date
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
@@ -123,13 +170,11 @@ export default function TodoApp() {
         Alert.alert('Invalid Date Format', 'Please use YYYY-MM-DD format (e.g., 2024-12-31)');
         return;
       }
-      
       const date = new Date(dueDate);
       if (isNaN(date.getTime())) {
         Alert.alert('Invalid Date', 'Please enter a valid date');
         return;
       }
-      
       validatedDueDate = dueDate;
     }
 
@@ -146,7 +191,7 @@ export default function TodoApp() {
 
     setTodos([...todos, newTodo]);
     resetForm();
-    Keyboard.dismiss();
+    dismissKeyboard();
   };
 
   const resetForm = () => {
@@ -156,6 +201,7 @@ export default function TodoApp() {
     setLocation('');
     setIsAdding(false);
     setFocusedInput(null);
+    dismissKeyboard();
   };
 
   const toggleTodo = (id: string) => {
@@ -269,11 +315,12 @@ export default function TodoApp() {
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.keyboardAvoidingView}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <TouchableWithoutFeedback onPress={dismissKeyboard}>
         <View style={styles.page}>
-          {/* Main scrollable content - ОДИН главный скролл для всего */}
-          <ScrollView 
+          {/* Main scrollable content */}
+          <ScrollView
             style={styles.mainScrollView}
             contentContainerStyle={[
               styles.scrollContent,
@@ -281,6 +328,7 @@ export default function TodoApp() {
             ]}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             <Text style={[
               styles.mainTitle,
@@ -401,8 +449,8 @@ export default function TodoApp() {
               <View style={styles.controlsContainer}>
                 <View style={styles.sortContainer}>
                   <Text style={styles.controlLabel}>Sort by:</Text>
-                  <ScrollView 
-                    horizontal 
+                  <ScrollView
+                    horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.horizontalScrollContent}
                   >
@@ -435,8 +483,8 @@ export default function TodoApp() {
 
                 <View style={styles.filterContainer}>
                   <Text style={styles.controlLabel}>Filter:</Text>
-                  <ScrollView 
-                    horizontal 
+                  <ScrollView
+                    horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.horizontalScrollContent}
                   >
@@ -477,7 +525,7 @@ export default function TodoApp() {
               </View>
             )}
 
-            {/* Tasks list - БЕЗ вложенного ScrollView */}
+            {/* Tasks list */}
             {sortedTodos.length > 0 && (
               <View style={[
                 styles.listContainer,
@@ -624,18 +672,20 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 40 : 20,
   },
   mainScrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     alignItems: 'center',
-    paddingBottom: 40, // Добавляем отступ снизу
+    paddingBottom: 40,
+    minHeight: '100%',
   },
   scrollContentLandscape: {
-    paddingTop: 30,
+    paddingTop: 20,
     paddingHorizontal: 10,
     paddingBottom: 40,
   },
@@ -881,7 +931,7 @@ const styles = StyleSheet.create({
     color: '#f44336',
   },
   bottomPadding: {
-    height: 40, // Дополнительный отступ снизу
+    height: 40,
   },
   modalContainer: {
     flex: 1,
