@@ -1,26 +1,22 @@
 // components/TodoApp/TodoApp.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
   useWindowDimensions,
   Alert,
-  Modal
+  Modal,
+  FlatList
 } from 'react-native';
 import { randomUUID } from 'expo-crypto';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Todo, FilterType, SortType } from './types';
 import { FilterType as FT, SortType as ST } from './types';
+import TodoForm from './TodoForm';
+import TodoItem from './TodoItem';
 
 const STORAGE_KEY = '@todos';
 
@@ -28,49 +24,11 @@ export default function TodoApp() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [filter, setFilter] = useState<FilterType>(FT.ALL);
   const [sort, setSort] = useState<SortType>(ST.DATE_ADDED);
-  const [isAdding, setIsAdding] = useState<boolean>(false);
   const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
-  
-  // Form states
-  const [text, setText] = useState('');
-  const [description, setDescription] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [location, setLocation] = useState('');
-  const [focusedInput, setFocusedInput] = useState<string | null>(null);
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isSmallScreen = width < 450;
-
-  // Кастомный хук для управления клавиатурой
-  const useKeyboardManager = () => {
-    const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-
-    useEffect(() => {
-      const keyboardDidShowListener = Keyboard.addListener(
-        Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-        () => setKeyboardVisible(true)
-      );
-      
-      const keyboardDidHideListener = Keyboard.addListener(
-        Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-        () => setKeyboardVisible(false)
-      );
-
-      return () => {
-        keyboardDidShowListener.remove();
-        keyboardDidHideListener.remove();
-      };
-    }, []);
-
-    const dismissKeyboard = () => {
-      Keyboard.dismiss();
-    };
-
-    return { isKeyboardVisible, dismissKeyboard };
-  };
-
-  const { dismissKeyboard } = useKeyboardManager();
 
   // Load data on startup
   useEffect(() => {
@@ -90,16 +48,10 @@ export default function TodoApp() {
       await ScreenOrientation.unlockAsync();
     };
 
-    const handleOrientationChange = () => {
-      dismissKeyboard();
-      setFocusedInput(null);
-    };
-
     loadTodos();
     configureOrientation();
 
-    // Подписка на изменение ориентации
-    const subscription = ScreenOrientation.addOrientationChangeListener(handleOrientationChange);
+    const subscription = ScreenOrientation.addOrientationChangeListener(() => {});
 
     return () => {
       subscription.remove();
@@ -113,91 +65,19 @@ export default function TodoApp() {
         await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
       } catch (error) {
         console.error('Error saving data:', error);
-        Alert.alert('Error', 'Failed to save tasks');
       }
     };
 
     saveTodos();
   }, [todos]);
 
-  // Format date function
-  const formatDueDate = (dateString: string) => {
-    if (!dateString) return '';
-    try {
-      // Try parsing as ISO string first
-      let date = new Date(dateString);
-      // If invalid, try parsing as YYYY-MM-DD
-      if (isNaN(date.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-        const [year, month, day] = dateString.split('-').map(Number);
-        date = new Date(year, month - 1, day);
-      }
-      // If still invalid, return original string
-      if (isNaN(date.getTime())) {
-        return dateString;
-      }
-      // Return formatted date
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      console.error('Date formatting error:', error);
-      return dateString;
-    }
-  };
+  const handleAddTodo = useCallback((newTodo: Todo) => {
+    setTodos(prev => [...prev, newTodo]);
+  }, []);
 
-  const handleSubmit = () => {
-    if (!text.trim()) {
-      Alert.alert('Error', 'Task title is required');
-      return;
-    }
-
-    // Validate due date
-    let validatedDueDate = undefined;
-    if (dueDate.trim()) {
-      // Check if it's in YYYY-MM-DD format
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-        Alert.alert('Invalid Date Format', 'Please use YYYY-MM-DD format (e.g., 2024-12-31)');
-        return;
-      }
-      const date = new Date(dueDate);
-      if (isNaN(date.getTime())) {
-        Alert.alert('Invalid Date', 'Please enter a valid date');
-        return;
-      }
-      validatedDueDate = dueDate;
-    }
-
-    const newTodo: Todo = {
-      id: randomUUID(),
-      text: text.trim(),
-      description: description.trim() || undefined,
-      dueDate: validatedDueDate,
-      location: location.trim() || undefined,
-      status: 'pending',
-      completed: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    setTodos([...todos, newTodo]);
-    resetForm();
-    dismissKeyboard();
-  };
-
-  const resetForm = () => {
-    setText('');
-    setDescription('');
-    setDueDate('');
-    setLocation('');
-    setIsAdding(false);
-    setFocusedInput(null);
-    dismissKeyboard();
-  };
-
-  const toggleTodo = (id: string) => {
-    setTodos(
-      todos.map((todo) =>
+  const toggleTodo = useCallback((id: string) => {
+    setTodos(prev =>
+      prev.map((todo) =>
         todo.id === id
           ? {
               ...todo,
@@ -207,11 +87,11 @@ export default function TodoApp() {
           : todo
       )
     );
-  };
+  }, []);
 
-  const updateTodoStatus = (id: string, status: Todo['status']) => {
-    setTodos(
-      todos.map((todo) =>
+  const updateTodoStatus = useCallback((id: string, status: Todo['status']) => {
+    setTodos(prev =>
+      prev.map((todo) =>
         todo.id === id
           ? {
               ...todo,
@@ -221,9 +101,9 @@ export default function TodoApp() {
           : todo
       )
     );
-  };
+  }, []);
 
-  const deleteTodo = (id: string) => {
+  const deleteTodo = useCallback((id: string) => {
     Alert.alert(
       'Delete Task',
       'Are you sure you want to delete this task?',
@@ -232,44 +112,11 @@ export default function TodoApp() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => setTodos(todos.filter(todo => todo.id !== id))
+          onPress: () => setTodos(prev => prev.filter(todo => todo.id !== id))
         },
       ]
     );
-  };
-
-  const clearCompleted = () => {
-    Alert.alert(
-      'Clear Completed',
-      'Delete all completed tasks?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: () => setTodos(todos.filter(todo => !todo.completed))
-        },
-      ]
-    );
-  };
-
-  const getStatusColor = (status: Todo['status']) => {
-    switch (status) {
-      case 'completed': return '#4CAF50';
-      case 'in-progress': return '#FF9800';
-      case 'cancelled': return '#F44336';
-      default: return '#9E9E9E';
-    }
-  };
-
-  const getStatusText = (status: Todo['status']) => {
-    switch (status) {
-      case 'completed': return 'Completed';
-      case 'in-progress': return 'In Progress';
-      case 'cancelled': return 'Cancelled';
-      default: return 'Pending';
-    }
-  };
+  }, []);
 
   const filteredTodos = todos.filter((todo) => {
     switch (filter) {
@@ -302,383 +149,210 @@ export default function TodoApp() {
   const completedTodos = todos.filter(todo => todo.completed).length;
   const remainingTodos = totalTodos - completedTodos;
 
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.keyboardAvoidingView}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
-    >
-      <TouchableWithoutFeedback onPress={dismissKeyboard}>
-        <View style={styles.page}>
-          {/* Main scrollable content */}
-          <ScrollView
-            style={styles.mainScrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              isLandscape && styles.scrollContentLandscape
-            ]}
-            showsVerticalScrollIndicator={true}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
-            <Text style={[
-              styles.mainTitle,
-              isSmallScreen && styles.mainTitleSmall,
-              isLandscape && styles.mainTitleLandscape
-            ]}>
-              Tasks
-            </Text>
+  // Рендер заголовка
+  const renderHeader = useCallback(() => (
+    <View style={styles.headerContainer}>
+      <Text style={[
+        styles.mainTitle,
+        isSmallScreen && styles.mainTitleSmall,
+        isLandscape && styles.mainTitleLandscape
+      ]}>
+        Tasks
+      </Text>
 
-            {/* Add new task form */}
-            <View style={styles.containerWrapper}>
-              <View style={[
-                styles.container,
-                isSmallScreen && styles.containerSmall,
-                isLandscape && styles.containerLandscape
-              ]}>
-                <TouchableOpacity
-                  style={styles.addButtonFull}
-                  onPress={() => setIsAdding(true)}
+      {/* Форма добавления задачи */}
+      <TodoForm onAddTodo={handleAddTodo} />
+
+      {/* Sorting and filtering */}
+      {todos.length > 0 && (
+        <View style={styles.controlsContainer}>
+          <View style={styles.sortContainer}>
+            <Text style={styles.controlLabel}>Sort by:</Text>
+            <FlatList
+              horizontal
+              data={[
+                { key: ST.DATE_ADDED, label: 'Date Added' },
+                { key: ST.DUE_DATE, label: 'Due Date' },
+                { key: ST.STATUS, label: 'Status' }
+              ]}
+              renderItem={({ item }) => (
+                <View 
+                  style={[styles.controlButton, sort === item.key && styles.controlButtonActive]}
+                  onTouchEnd={() => setSort(item.key as SortType)}
                 >
-                  <Text style={styles.addButtonFullText}>+ New Task</Text>
-                </TouchableOpacity>
+                  <Text style={[styles.controlButtonText, sort === item.key && styles.controlButtonTextActive]}>
+                    {item.label}
+                  </Text>
+                </View>
+              )}
+              keyExtractor={(item) => item.key}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalScrollContent}
+            />
+          </View>
 
-                {isAdding && (
-                  <View style={styles.addForm}>
-                    {/* Task title */}
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>Task Title *</Text>
-                      <TextInput
-                        style={[
-                          styles.input,
-                          focusedInput === 'text' && styles.inputFocused
-                        ]}
-                        placeholder="Enter task title"
-                        placeholderTextColor="#999"
-                        value={text}
-                        onChangeText={setText}
-                        onFocus={() => setFocusedInput('text')}
-                        onBlur={() => setFocusedInput(null)}
-                      />
-                    </View>
+          <View style={styles.filterContainer}>
+            <Text style={styles.controlLabel}>Filter:</Text>
+            <FlatList
+              horizontal
+              data={[
+                { key: FT.ALL, label: `All (${totalTodos})` },
+                { key: FT.ACTIVE, label: `Active (${remainingTodos})` },
+                { key: FT.IN_PROGRESS, label: 'In Progress' },
+                { key: FT.COMPLETED, label: `Completed (${completedTodos})` }
+              ]}
+              renderItem={({ item }) => (
+                <View 
+                  style={[styles.controlButton, filter === item.key && styles.controlButtonActive]}
+                  onTouchEnd={() => setFilter(item.key as FilterType)}
+                >
+                  <Text style={[styles.controlButtonText, filter === item.key && styles.controlButtonTextActive]}>
+                    {item.label}
+                  </Text>
+                </View>
+              )}
+              keyExtractor={(item) => item.key}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalScrollContent}
+            />
+          </View>
+        </View>
+      )}
+    </View>
+  ), [isSmallScreen, isLandscape, todos.length, sort, filter, totalTodos, remainingTodos, completedTodos, handleAddTodo]);
 
-                    {/* Task description */}
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>Description</Text>
-                      <TextInput
-                        style={[
-                          styles.input,
-                          styles.textArea,
-                          focusedInput === 'description' && styles.inputFocused
-                        ]}
-                        placeholder="Add description (optional)"
-                        placeholderTextColor="#999"
-                        value={description}
-                        onChangeText={setDescription}
-                        onFocus={() => setFocusedInput('description')}
-                        onBlur={() => setFocusedInput(null)}
-                        multiline
-                        numberOfLines={3}
-                      />
-                    </View>
+  // Рендер элемента списка задач
+  const renderTodoItem = useCallback(({ item }: { item: Todo }) => (
+    <TodoItem 
+      item={item}
+      onToggle={toggleTodo}
+      onUpdateStatus={updateTodoStatus}
+      onDelete={deleteTodo}
+      onSelect={setSelectedTodo}
+      isSmallScreen={isSmallScreen}
+    />
+  ), [toggleTodo, updateTodoStatus, deleteTodo, isSmallScreen]);
 
-                    {/* Due date */}
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>Due Date</Text>
-                      <TextInput
-                        style={[
-                          styles.input,
-                          focusedInput === 'dueDate' && styles.inputFocused
-                        ]}
-                        placeholder="YYYY-MM-DD (optional)"
-                        placeholderTextColor="#999"
-                        value={dueDate}
-                        onChangeText={setDueDate}
-                        onFocus={() => setFocusedInput('dueDate')}
-                        onBlur={() => setFocusedInput(null)}
-                      />
-                    </View>
+  // Рендер пустого состояния
+  const renderEmptyState = useCallback(() => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyStateText}>
+        {todos.length === 0 
+          ? "No tasks yet. Add your first task!" 
+          : "No tasks match the current filter"}
+      </Text>
+    </View>
+  ), [todos.length]);
 
-                    {/* Location */}
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>Location</Text>
-                      <TextInput
-                        style={[
-                          styles.input,
-                          focusedInput === 'location' && styles.inputFocused
-                        ]}
-                        placeholder="Enter location (optional)"
-                        placeholderTextColor="#999"
-                        value={location}
-                        onChangeText={setLocation}
-                        onFocus={() => setFocusedInput('location')}
-                        onBlur={() => setFocusedInput(null)}
-                      />
-                    </View>
+  return (
+    <View style={styles.appContainer}>
+      <FlatList
+        data={sortedTodos}
+        renderItem={renderTodoItem}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmptyState}
+        contentContainerStyle={[
+          styles.flatListContent,
+          isLandscape && styles.flatListContentLandscape,
+          sortedTodos.length === 0 && styles.flatListContentEmpty
+        ]}
+        style={styles.flatList}
+        showsVerticalScrollIndicator={true}
+      />
 
-                    <View style={styles.formActions}>
-                      <TouchableOpacity
-                        style={[styles.button, styles.cancelButton]}
-                        onPress={resetForm}
-                      >
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.button, styles.saveButton]}
-                        onPress={handleSubmit}
-                      >
-                        <Text style={styles.saveButtonText}>Save</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
+      {/* Task details modal */}
+      <Modal
+        visible={!!selectedTodo}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSelectedTodo(null)}
+      >
+        {selectedTodo && (
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Task Details</Text>
+              <View 
+                style={styles.closeButton}
+                onTouchEnd={() => setSelectedTodo(null)}
+              >
+                <Text style={styles.closeButtonText}>✕</Text>
               </View>
             </View>
-
-            {/* Sorting and filtering */}
-            {todos.length > 0 && (
-              <View style={styles.controlsContainer}>
-                <View style={styles.sortContainer}>
-                  <Text style={styles.controlLabel}>Sort by:</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.horizontalScrollContent}
-                  >
-                    <TouchableOpacity
-                      style={[styles.controlButton, sort === ST.DATE_ADDED && styles.controlButtonActive]}
-                      onPress={() => setSort(ST.DATE_ADDED)}
-                    >
-                      <Text style={[styles.controlButtonText, sort === ST.DATE_ADDED && styles.controlButtonTextActive]}>
-                        Date Added
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.controlButton, sort === ST.DUE_DATE && styles.controlButtonActive]}
-                      onPress={() => setSort(ST.DUE_DATE)}
-                    >
-                      <Text style={[styles.controlButtonText, sort === ST.DUE_DATE && styles.controlButtonTextActive]}>
-                        Due Date
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.controlButton, sort === ST.STATUS && styles.controlButtonActive]}
-                      onPress={() => setSort(ST.STATUS)}
-                    >
-                      <Text style={[styles.controlButtonText, sort === ST.STATUS && styles.controlButtonTextActive]}>
-                        Status
-                      </Text>
-                    </TouchableOpacity>
-                  </ScrollView>
-                </View>
-
-                <View style={styles.filterContainer}>
-                  <Text style={styles.controlLabel}>Filter:</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.horizontalScrollContent}
-                  >
-                    <TouchableOpacity
-                      style={[styles.controlButton, filter === FT.ALL && styles.controlButtonActive]}
-                      onPress={() => setFilter(FT.ALL)}
-                    >
-                      <Text style={[styles.controlButtonText, filter === FT.ALL && styles.controlButtonTextActive]}>
-                        All ({totalTodos})
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.controlButton, filter === FT.ACTIVE && styles.controlButtonActive]}
-                      onPress={() => setFilter(FT.ACTIVE)}
-                    >
-                      <Text style={[styles.controlButtonText, filter === FT.ACTIVE && styles.controlButtonTextActive]}>
-                        Active ({remainingTodos})
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.controlButton, filter === FT.IN_PROGRESS && styles.controlButtonActive]}
-                      onPress={() => setFilter(FT.IN_PROGRESS)}
-                    >
-                      <Text style={[styles.controlButtonText, filter === FT.IN_PROGRESS && styles.controlButtonTextActive]}>
-                        In Progress
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.controlButton, filter === FT.COMPLETED && styles.controlButtonActive]}
-                      onPress={() => setFilter(FT.COMPLETED)}
-                    >
-                      <Text style={[styles.controlButtonText, filter === FT.COMPLETED && styles.controlButtonTextActive]}>
-                        Completed ({completedTodos})
-                      </Text>
-                    </TouchableOpacity>
-                  </ScrollView>
-                </View>
-              </View>
-            )}
-
-            {/* Tasks list */}
-            {sortedTodos.length > 0 && (
-              <View style={[
-                styles.listContainer,
-                isLandscape && styles.listContainerLandscape
-              ]}>
-                {sortedTodos.map((todo: Todo) => (
-                  <TouchableOpacity
-                    key={todo.id}
-                    style={[styles.todoItem, isSmallScreen && styles.todoItemSmall]}
-                    onPress={() => setSelectedTodo(todo)}
-                  >
-                    <View style={styles.todoHeader}>
-                      <TouchableOpacity
-                        style={[styles.checkbox, todo.completed && styles.checkboxCompleted]}
-                        onPress={() => toggleTodo(todo.id)}
-                      >
-                        <Text style={[styles.checkmark, todo.completed && styles.checkmarkCompleted]}>
-                          ✓
-                        </Text>
-                      </TouchableOpacity>
-                      <View style={styles.todoInfo}>
-                        <Text style={[styles.todoText, todo.completed && styles.todoTextCompleted]}>
-                          {todo.text}
-                        </Text>
-                        {todo.dueDate && (
-                          <Text style={styles.todoMeta}>
-                            Due: {formatDueDate(todo.dueDate)}
-                          </Text>
-                        )}
-                        {todo.location && (
-                          <Text style={styles.todoMeta}>
-                            📍 {todo.location}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(todo.status) }]}>
-                        <Text style={styles.statusText}>
-                          {getStatusText(todo.status)}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.todoActions}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => updateTodoStatus(todo.id, 'in-progress')}
-                      >
-                        <Text style={styles.actionButtonText}>In Progress</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => updateTodoStatus(todo.id, 'completed')}
-                      >
-                        <Text style={styles.actionButtonText}>Complete</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => updateTodoStatus(todo.id, 'cancelled')}
-                      >
-                        <Text style={styles.actionButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.deleteButton]}
-                        onPress={() => deleteTodo(todo.id)}
-                      >
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Bottom padding to ensure last task is fully visible */}
-            <View style={styles.bottomPadding} />
-          </ScrollView>
-
-          {/* Task details modal */}
-          <Modal
-            visible={!!selectedTodo}
-            animationType="slide"
-            presentationStyle="pageSheet"
-            onRequestClose={() => setSelectedTodo(null)}
-          >
-            {selectedTodo && (
-              <View style={styles.modalContainer}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Task Details</Text>
-                  <TouchableOpacity
-                    style={styles.closeButton}
-                    onPress={() => setSelectedTodo(null)}
-                  >
-                    <Text style={styles.closeButtonText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.modalContent}>
-                  <Text style={styles.detailTitle}>{selectedTodo.text}</Text>
-                  {selectedTodo.description && (
+            <FlatList
+              data={[selectedTodo]}
+              renderItem={({ item }) => (
+                <View style={styles.modalContent}>
+                  <Text style={styles.detailTitle}>{item.text}</Text>
+                  {item.description && (
                     <View style={styles.detailSection}>
                       <Text style={styles.detailLabel}>Description:</Text>
-                      <Text style={styles.detailText}>{selectedTodo.description}</Text>
+                      <Text style={styles.detailText}>{item.description}</Text>
                     </View>
                   )}
                   <View style={styles.detailSection}>
                     <Text style={styles.detailLabel}>Status:</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedTodo.status) }]}>
-                      <Text style={styles.statusText}>{getStatusText(selectedTodo.status)}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: '#9E9E9E' }]}>
+                      <Text style={styles.statusText}>
+                        {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                      </Text>
                     </View>
                   </View>
-                  {selectedTodo.dueDate && (
+                  {item.dueDate && (
                     <View style={styles.detailSection}>
                       <Text style={styles.detailLabel}>Due Date:</Text>
                       <Text style={styles.detailText}>
-                        {formatDueDate(selectedTodo.dueDate)}
+                        {new Date(item.dueDate).toLocaleDateString()}
                       </Text>
                     </View>
                   )}
-                  {selectedTodo.location && (
+                  {item.location && (
                     <View style={styles.detailSection}>
                       <Text style={styles.detailLabel}>Location:</Text>
-                      <Text style={styles.detailText}>{selectedTodo.location}</Text>
+                      <Text style={styles.detailText}>{item.location}</Text>
                     </View>
                   )}
                   <View style={styles.detailSection}>
                     <Text style={styles.detailLabel}>Created:</Text>
                     <Text style={styles.detailText}>
-                      {new Date(selectedTodo.createdAt).toLocaleString('en-US')}
+                      {new Date(item.createdAt).toLocaleString('en-US')}
                     </Text>
                   </View>
-                </ScrollView>
-              </View>
-            )}
-          </Modal>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+                </View>
+              )}
+              keyExtractor={() => 'modal-content'}
+              style={styles.modalFlatList}
+            />
+          </View>
+        )}
+      </Modal>
+    </View>
   );
 }
 
-// Updated Styles with proper scroll handling
 const styles = StyleSheet.create({
-  keyboardAvoidingView: {
+  appContainer: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    paddingTop: 40,
   },
-  page: {
-    flex: 1,
-    paddingTop: Platform.OS === 'ios' ? 40 : 20,
-  },
-  mainScrollView: {
+  flatList: {
     flex: 1,
   },
-  scrollContent: {
+  flatListContent: {
     padding: 20,
-    paddingTop: 20,
-    alignItems: 'center',
+    paddingTop: 0,
     paddingBottom: 40,
-    minHeight: '100%',
   },
-  scrollContentLandscape: {
-    paddingTop: 20,
+  flatListContentLandscape: {
     paddingHorizontal: 10,
-    paddingBottom: 40,
+  },
+  flatListContentEmpty: {
+    flexGrow: 1,
+    justifyContent: 'flex-start',
+  },
+  headerContainer: {
+    marginBottom: 20,
   },
   mainTitle: {
     color: '#cc9a9a',
@@ -694,95 +368,6 @@ const styles = StyleSheet.create({
   mainTitleLandscape: {
     fontSize: 50,
     marginBottom: 20,
-  },
-  containerWrapper: {
-    width: '100%',
-    maxWidth: 550,
-    alignSelf: 'center',
-  },
-  container: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  containerSmall: {
-    maxWidth: '100%',
-  },
-  containerLandscape: {
-    maxWidth: 600,
-  },
-  addButtonFull: {
-    backgroundColor: '#5dc2af',
-    padding: 16,
-    alignItems: 'center',
-  },
-  addButtonFullText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  addForm: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    padding: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    backgroundColor: 'white',
-  },
-  inputFocused: {
-    borderColor: '#5dc2af',
-    borderWidth: 2,
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  formActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 16,
-  },
-  button: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 6,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: '#5dc2af',
-  },
-  saveButtonText: {
-    color: 'white',
-    fontWeight: '600',
   },
   controlsContainer: {
     width: '100%',
@@ -823,106 +408,16 @@ const styles = StyleSheet.create({
   horizontalScrollContent: {
     paddingHorizontal: 4,
   },
-  listContainer: {
-    width: '100%',
-    maxWidth: 550,
-    alignSelf: 'center',
-  },
-  listContainerLandscape: {
-    maxWidth: 600,
-    marginBottom: 20,
-  },
-  todoItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ededed',
-    backgroundColor: '#fff',
-  },
-  todoItemSmall: {
-    padding: 12,
-  },
-  todoHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  checkbox: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#e6e6e6',
-    marginRight: 12,
+  emptyState: {
+    padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'white',
-  },
-  checkboxCompleted: {
-    borderColor: '#5dc2af',
-    backgroundColor: '#5dc2af',
-  },
-  checkmark: {
-    color: 'transparent',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  checkmarkCompleted: {
-    color: 'white',
-  },
-  todoInfo: {
     flex: 1,
   },
-  todoText: {
-    color: '#4d4d4d',
-    fontSize: 18,
-    fontWeight: '300',
-  },
-  todoTextCompleted: {
-    color: '#d9d9d9',
-    textDecorationLine: 'line-through',
-  },
-  todoMeta: {
-    fontSize: 12,
+  emptyStateText: {
+    fontSize: 16,
     color: '#666',
-    marginTop: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  todoActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#f5f5f5',
-  },
-  actionButtonText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  deleteButton: {
-    backgroundColor: '#ffebee',
-  },
-  deleteButtonText: {
-    fontSize: 12,
-    color: '#f44336',
-  },
-  bottomPadding: {
-    height: 40,
+    textAlign: 'center',
   },
   modalContainer: {
     flex: 1,
@@ -948,8 +443,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#666',
   },
-  modalContent: {
+  modalFlatList: {
     flex: 1,
+  },
+  modalContent: {
     padding: 16,
   },
   detailTitle: {
@@ -971,5 +468,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     lineHeight: 24,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
   },
 });
