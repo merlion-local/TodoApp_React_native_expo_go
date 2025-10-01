@@ -83,7 +83,7 @@ git clone <repository-url>
 cd TodoApp
 2. Install Dependencies
 bash
-Копировать код
+
 npm install
 # or
 yarn install
@@ -91,14 +91,14 @@ yarn install
 Ensure Expo CLI is installed globally:
 
 bash
-Копировать код
+
 npm install -g @expo/cli
 🚀 Running the Application
 Development with Expo Go
 Start Metro Bundler:
 
 bash
-Копировать код
+
 npx expo start
 # or
 npm start
@@ -111,7 +111,7 @@ iOS: Scan QR code with Camera app
 Alternative Start Commands:
 
 bash
-Копировать код
+
 # Start with cache clearance
 npx expo start --clear
 
@@ -124,7 +124,7 @@ npx expo start --tunnel
 🏗 Building APK
 Method 1: Native Build (Recommended)
 bash
-Копировать код
+
 # 1. Generate Native Files
 npx expo prebuild
 
@@ -136,7 +136,7 @@ cd android
 android/app/build/outputs/apk/release/app-release.apk
 Method 2: EAS Build (Cloud)
 bash
-Копировать код
+
 # Install EAS CLI
 npm install -g @expo/eas-cli
 
@@ -147,11 +147,11 @@ npx eas build --platform android
 npx eas build --platform android --local
 Method 3: Classic Expo Build
 bash
-Копировать код
+
 npx expo build:android
 📁 Project Structure
 text
-Копировать код
+
 TodoApp/
 ├── components/
 │   └── TodoApp/
@@ -196,21 +196,21 @@ Common Issues
 Metro Bundler Cache Problems
 
 bash
-Копировать код
+
 npx expo start --clear
 # or
 npx react-native clean
 Native Build Failures
 
 bash
-Копировать код
+
 # Clean and regenerate
 rm -rf android ios
 npx expo prebuild --clean
 Dependency Issues
 
 bash
-Копировать код
+
 # Clear all caches
 rm -rf node_modules package-lock.json
 npm install
@@ -229,17 +229,17 @@ Fork the repository
 Create a feature branch:
 
 bash
-Копировать код
+
 git checkout -b feature/amazing-feature
 Commit changes:
 
 bash
-Копировать код
+
 git commit -m 'Add amazing feature'
 Push to branch:
 
 bash
-Копировать код
+
 git push origin feature/amazing-feature
 Open a Pull Request
 
